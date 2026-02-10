@@ -83,54 +83,68 @@ if st.button("GENERATE TRADE REPORT"):
             resistance = float(df['high'].rolling(20).max().iloc[-1])
             
             range_width = ((resistance - support) / support) * 100
-            volatility_pct = (atr / price) * 100
             avg_vol = df['volume'].rolling(20).mean().iloc[-1]
             vol_ratio = latest['volume'] / avg_vol
             p_gain, p_loss = resistance - price, price - support
             rr_ratio = p_gain / p_loss if p_loss > 0 else 0
 
-            # UI Metrics
-            st.metric(f"{final_symbol} Price", f"${price:,.2f}")
+            # Price Display
+            st.metric(f"{final_symbol} Current Price", f"${price:,.2f}")
             
             tab1, tab2 = st.tabs(["Analysis Report", "Market Data"])
             
             with tab1:
-                st.markdown("### Technical Notation")
-                col_a, col_b = st.columns(2)
-                col_a.write(f"**Regime:** {'Bullish' if price > ema_200 else 'Bearish'}")
-                col_b.write(f"**Structure:** {'Consolidation' if range_width < 5 else 'Wide Range'}")
-                st.write(f"**SR Levels:** Support ${support:,.2f} | Resistance ${resistance:,.2f}")
-                st.write(f"**Range Width:** {range_width:.2f}%")
-
-                st.markdown("### Price Action")
-                st.write(f"**Momentum:** RSI is {rsi:.1f} ({'Overbought' if rsi > 70 else 'Oversold' if rsi < 30 else 'Neutral'})")
-                st.write(f"**Volume:** {'Spike Detected' if vol_ratio > 1.5 else 'Normal participation'}")
-
-                st.markdown("### Risk Assessment")
-                st.write(f"**RR Ratio:** 1 : {rr_ratio:.2f}")
+                # SECTION 1: TECHNICAL NOTATION
+                st.markdown("---")
+                st.markdown("<h3 style='color: #2465ff; text-transform: uppercase;'>Technical Notation</h3>", unsafe_allow_html=True)
                 
-                if rr_ratio < 1.0:
-                    st.error(f"Negative RR: Risking ${p_loss:,.2f} to make ${p_gain:,.2f}")
-                elif rr_ratio >= 2.0:
-                    st.success(f"Excellent RR: Reward exceeds risk by 2x or more")
+                with st.container():
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        regime_color = "#00ff00" if price > ema_200 else "#ff4b4b"
+                        st.markdown(f"**REGIME:** <span style='color: {regime_color}; font-weight: bold;'>{ 'BULLISH' if price > ema_200 else 'BEARISH' }</span>", unsafe_allow_html=True)
+                        st.markdown(f"**STRUCTURE:** `{ 'CONSOLIDATION' if range_width < 5 else 'WIDE RANGE' }`", unsafe_allow_html=True)
+                    with c2:
+                        st.markdown(f"**RANGE WIDTH:** `{range_width:.2f}%`", unsafe_allow_html=True)
+                        st.markdown(f"**SR LEVELS:** `${support:,.2f}` | `${resistance:,.2f}`", unsafe_allow_html=True)
 
-                st.write(f"**Stop Loss Note:** Noise Floor at ${(price - (atr*2)):,.2f}")
+                # SECTION 2: PRICE ACTION
+                st.markdown("<h3 style='color: #00e5ff; text-transform: uppercase;'>Price Action</h3>", unsafe_allow_html=True)
+                with st.container():
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        rsi_color = "#ff4b4b" if rsi > 70 or rsi < 30 else "#00ff00"
+                        st.markdown(f"**MOMENTUM:** RSI IS <span style='color: {rsi_color}; font-weight: bold;'>{rsi:.1f}</span>", unsafe_allow_html=True)
+                    with c2:
+                        vol_color = "#00e5ff" if vol_ratio > 1.5 else "#e0e0e0"
+                        st.markdown(f"**VOLUME:** <span style='color: {vol_color}; font-weight: bold;'>{ 'SPIKE DETECTED' if vol_ratio > 1.5 else 'NORMAL' }</span>", unsafe_allow_html=True)
+
+                # SECTION 3: RISK ASSESSMENT
+                st.markdown("<h3 style='color: #ffaa00; text-transform: uppercase;'>Risk Assessment</h3>", unsafe_allow_html=True)
+                with st.container():
+                    st.markdown(f"**RR RATIO:** `1 : {rr_ratio:.2f}`")
+                    if rr_ratio < 1.0:
+                        st.warning(f"NEGATIVE RR: Risking ${p_loss:,.2f} to make ${p_gain:,.2f}")
+                    elif rr_ratio >= 2.0:
+                        st.success(f"EXCELLENT RR: Reward exceeds risk by 2x")
+                    
+                    st.markdown(f"**STOP LOSS NOTE:** Noise Floor at :red[`${(price - (atr*2)):,.2f}`]")
                 
-                # Final Strategy Conclusion
+                # FINAL STRATEGY CONCLUSION
                 st.divider()
                 if price > ema_200:
                     if rr_ratio >= 2.0 and rsi < 55:
-                        st.success("Strategy: High Conviction Long")
+                        st.success("STRATEGY: HIGH CONVICTION LONG")
                     elif rr_ratio < 1.0:
-                        st.info("Strategy: Patience - Wait for Mean Reversion")
+                        st.info("STRATEGY: PATIENCE - WAIT FOR MEAN REVERSION")
                     else:
-                        st.info("Strategy: Mediocre Setup")
+                        st.info("STRATEGY: MEDIOCRE SETUP")
                 else:
-                    st.error("Strategy: Avoid - Market structure broken")
+                    st.error("STRATEGY: AVOID - MARKET STRUCTURE BROKEN")
 
             with tab2:
-                st.write("Recent Price History")
-                st.dataframe(df[['open', 'high', 'low', 'close', 'rsi']].tail(10))
+                st.subheader("Recent Price History")
+                st.dataframe(df[['open', 'high', 'low', 'close', 'rsi']].tail(10), use_container_width=True)
 
         except Exception as e:
-            st.error(f"Error: {str(e)}")
+            st.error(f"Analysis Failed: {str(e)}")
