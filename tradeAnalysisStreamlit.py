@@ -70,10 +70,11 @@ def get_data(symbol, asset_type):
 
 # 4. Analysis Execution
 if st.button("GENERATE TRADE REPORT"):
-    with st.spinner("Processing data..."):
+    with st.spinner("Fetching Market Data..."):
         try:
             df, final_symbol = get_data(symbol_input, asset_class)
             
+            # Logic calculations
             latest = df.iloc[-1]
             price = float(latest['close'])
             rsi = float(latest['rsi'])
@@ -82,69 +83,90 @@ if st.button("GENERATE TRADE REPORT"):
             support = float(df['low'].rolling(20).min().iloc[-1])
             resistance = float(df['high'].rolling(20).max().iloc[-1])
             
+            # --- CALCULATE TREND STRENGTH ---
+            ema_dist = ((price - ema_200) / ema_200) * 100
+            # If positive, we are X% above. If negative, we are X% below.
+            # Mean Reversion Logic
+            # Triggered if we are more than 20% below the EMA (oversold bounce potential)
+            mean_reversion_candidate = ema_dist < -20 and rsi < 30
+            
             range_width = ((resistance - support) / support) * 100
             avg_vol = df['volume'].rolling(20).mean().iloc[-1]
             vol_ratio = latest['volume'] / avg_vol
             p_gain, p_loss = resistance - price, price - support
             rr_ratio = p_gain / p_loss if p_loss > 0 else 0
 
-            # Price Display
-            st.metric(f"{final_symbol} Current Price", f"${price:,.2f}")
-            
-            tab1, tab2 = st.tabs(["Analysis Report", "Market Data"])
-            
-            with tab1:
-                # SECTION 1: TECHNICAL NOTATION
-                st.markdown("---")
-                st.markdown("<h3 style='color: #2465ff; text-transform: uppercase;'>Technical Notation</h3>", unsafe_allow_html=True)
-                
-                with st.container():
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        regime_color = "#00ff00" if price > ema_200 else "#ff4b4b"
-                        st.markdown(f"**REGIME:** <span style='color: {regime_color}; font-weight: bold;'>{ 'BULLISH' if price > ema_200 else 'BEARISH' }</span>", unsafe_allow_html=True)
-                        st.markdown(f"**STRUCTURE:** `{ 'CONSOLIDATION' if range_width < 5 else 'WIDE RANGE' }`", unsafe_allow_html=True)
-                    with c2:
-                        st.markdown(f"**RANGE WIDTH:** `{range_width:.2f}%`", unsafe_allow_html=True)
-                        st.markdown(f"**SR LEVELS:** `${support:,.2f}` | `${resistance:,.2f}`", unsafe_allow_html=True)
+            # --- STYLE HELPERS ---
+            def green(text): return f"<span style='color: #00ff00;'>{text}</span>"
+            def red(text): return f"<span style='color: #ff4b4b;'>{text}</span>"
 
-                # SECTION 2: PRICE ACTION
-                st.markdown("<h3 style='color: #00e5ff; text-transform: uppercase;'>Price Action</h3>", unsafe_allow_html=True)
-                with st.container():
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        rsi_color = "#ff4b4b" if rsi > 70 or rsi < 30 else "#00ff00"
-                        st.markdown(f"**MOMENTUM:** RSI IS <span style='color: {rsi_color}; font-weight: bold;'>{rsi:.1f}</span>", unsafe_allow_html=True)
-                    with c2:
-                        vol_color = "#00e5ff" if vol_ratio > 1.5 else "#e0e0e0"
-                        st.markdown(f"**VOLUME:** <span style='color: {vol_color}; font-weight: bold;'>{ 'SPIKE DETECTED' if vol_ratio > 1.5 else 'NORMAL' }</span>", unsafe_allow_html=True)
+            # --- 1. INITIALIZE REPORT CONTAINER ---
+            report = '<div style="font-family: monospace; background-color: #1e1e1e; padding: 20px; border-radius: 5px; line-height: 1.6; color: #e0e0e0;">'
 
-                # SECTION 3: RISK ASSESSMENT
-                st.markdown("<h3 style='color: #ffaa00; text-transform: uppercase;'>Risk Assessment</h3>", unsafe_allow_html=True)
-                with st.container():
-                    st.markdown(f"**RR RATIO:** `1 : {rr_ratio:.2f}`")
-                    if rr_ratio < 1.0:
-                        st.warning(f"NEGATIVE RR: Risking ${p_loss:,.2f} to make ${p_gain:,.2f}")
-                    elif rr_ratio >= 2.0:
-                        st.success(f"EXCELLENT RR: Reward exceeds risk by 2x")
-                    
-                    st.markdown(f"**STOP LOSS NOTE:** Noise Floor at :red[`${(price - (atr*2)):,.2f}`]")
-                
-                # FINAL STRATEGY CONCLUSION
-                st.divider()
-                if price > ema_200:
-                    if rr_ratio >= 2.0 and rsi < 55:
-                        st.success("STRATEGY: HIGH CONVICTION LONG")
-                    elif rr_ratio < 1.0:
-                        st.info("STRATEGY: PATIENCE - WAIT FOR MEAN REVERSION")
-                    else:
-                        st.info("STRATEGY: MEDIOCRE SETUP")
+            # --- 2. HEADER SECTION ---
+            spot_val = green(f"${price:,.2f}") if price > ema_200 else red(f"${price:,.2f}")
+            report += f"Ticker: {final_symbol} | Spot: {spot_val}<br>"
+            report += f"SR Levels: [S: ${support:,.2f} | R: ${resistance:,.2f}]<br>"
+            report += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br><br>"
+
+            # --- 3. TECHNICAL NOTATION ---
+            regime_status = green("Bullish") if price > ema_200 else red("Bearish")
+            report += "TECHNICAL NOTATION<br>"
+            report += f"Regime: {regime_status} (vs 200 EMA)<br>"
+            report += f"Structure: {'Consolidation' if range_width < 5 else 'Wide Range'}<br><br>"
+
+            # --- 4. TREND DYNAMICS ---
+            dist_color = green if ema_dist > 0 else red
+            report += "TREND DYNAMICS<br>"
+            report += f"EMA distance: {dist_color(f'{ema_dist:.2f}%')}<br>"
+            report += f"Mean price (200 EMA): {green(f'${ema_200:,.2f}') if price < ema_200 else red(f'${ema_200:,.2f}')}<br>"
+            
+            if mean_reversion_candidate:
+                report += f"Alert: {green('Extreme extension detected')} - mean reversion likely<br>"
+                report += f"Target: Potential bounce toward ${ema_200:,.2f}<br>"
+            elif abs(ema_dist) > 15:
+                report += f"Note: {red('Extended')} from average price<br>"
+            else:
+                report += "Note: Price is near the mean<br>"
+            report += "<br>"
+
+            # --- 5. PRICE ACTION ---
+            rsi_val = red(f"{rsi:.1f}") if rsi > 70 or rsi < 30 else green(f"{rsi:.1f}")
+            report += "PRICE ACTION<br>"
+            report += f"Momentum: RSI is {rsi_val}<br>"
+            report += f"Volume: {'Spike detected' if vol_ratio > 1.5 else 'Normal participation'}<br><br>"
+
+            # --- 6. RISK MANAGEMENT ---
+            rr_val = green(f"1 : {rr_ratio:.2f}") if rr_ratio >= 2.0 else red(f"1 : {rr_ratio:.2f}")
+            risk_text = red(f"${p_loss:,.2f}")
+            reward_text = green(f"${p_gain:,.2f}")
+            
+            # Calculate a 2x ATR Stop Loss
+            safety_stop = price - (atr * 2)
+            
+            report += "RISK MANAGEMENT<br>"
+            report += f"R/R ratio: {rr_val}<br>"
+            report += f"Risk: {risk_text} | Reward: {reward_text}<br>"
+            report += f"Safety stop (2x ATR): {red(f'${safety_stop:,.2f}')}<br><br>"
+
+            # --- 7. STRATEGY CONCLUSION ---
+            report += "STRATEGY CONCLUSION<br>"
+            if price < ema_200:
+                if mean_reversion_candidate:
+                    report += f"Action: {green('Speculative Long')} (Mean Reversion Play)<br>"
+                    report += f"Exit if price drops below {red(f'${safety_stop:,.2f}')}"
                 else:
-                    st.error("STRATEGY: AVOID - MARKET STRUCTURE BROKEN")
+                    report += red("Action: Avoid - Market structure is broken")
+            elif rr_ratio >= 2.0 and rsi < 55:
+                report += green("Action: High Conviction Long")
+            elif rr_ratio < 1.0:
+                report += red("Action: Patience - Wait for a deeper dip")
+            else:
+                report += "Action: Mediocre setup - No clear edge"
 
-            with tab2:
-                st.subheader("Recent Price History")
-                st.dataframe(df[['open', 'high', 'low', 'close', 'rsi']].tail(10), use_container_width=True)
+            # --- 8. CLOSE AND RENDER ---
+            report += "</div>"
+            st.markdown(report, unsafe_allow_html=True)
 
         except Exception as e:
-            st.error(f"Analysis Failed: {str(e)}")
+            st.error(f"Execution Error: {str(e)}")
