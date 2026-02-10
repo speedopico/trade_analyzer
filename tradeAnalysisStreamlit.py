@@ -2,47 +2,21 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import ccxt
-import requests # Add this at the top
+import requests
 
-def get_data(symbol, asset_type):
-    # Create a session with a browser-like header
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    })
-
-    if asset_type == "Crypto":
-        # ... (keep your CCXT crypto code the same)
-        pass 
-    else:
-        # Pass the session to yfinance
-        df = yf.download(symbol, period="2y", interval="1d", session=session, threads=False)
-        # ... (rest of your logic)
-
-# 1. Page Setup
-st.set_page_config(page_title="Trader Analyzer", layout="centered")
+# 1. PAGE SETUP
+st.set_page_config(page_title="Terminal Pro Analyzer", layout="centered")
 
 # Custom CSS for a professional dark terminal theme
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117; color: #e0e0e0; }
     .stButton>button { width: 100%; border-radius: 10px; height: 3.5em; background-color: #2465ff; color: white; font-weight: bold; }
-    [data-testid="stMetricValue"] { font-size: 1.8rem !important; color: #00e5ff !important; }
-    .report-section { background-color: #161b22; padding: 15px; border-radius: 10px; border: 1px solid #30363d; margin-bottom: 10px; }
+    .report-container { background-color: #1e1e1e; padding: 20px; border-radius: 5px; line-height: 1.6; color: #e0e0e0; font-family: monospace; border: 1px solid #30363d; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("Trader Analyzer Pro")
-
-# 2. Input Section
-with st.container():
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        symbol_input = st.text_input("Ticker Symbol", value="BTC").upper().strip()
-    with col2:
-        asset_class = st.selectbox("Type", ["Stock", "Crypto"])
-
-# 3. Logic Engine
+# 2. LOGIC ENGINE
 def get_data(symbol, asset_type):
     if asset_type == "Crypto":
         symbol = f"{symbol}/USD" if "/" not in symbol else symbol
@@ -52,13 +26,12 @@ def get_data(symbol, asset_type):
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
         df.set_index("timestamp", inplace=True)
     else:
-        df = yf.download(symbol, period="2y", interval="1d")
+        df = yf.download(symbol, period="2y", interval="1d", threads=False)
         if isinstance(df.columns, pd.MultiIndex): 
             df.columns = df.columns.get_level_values(0)
         df['close'] = df['Adj Close'] if 'Adj Close' in df.columns else df['Close']
         df = df.rename(columns={"Open": "open", "High": "high", "Low": "low", "Volume": "volume"})
 
-    # Indicator Calculations
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -68,103 +41,105 @@ def get_data(symbol, asset_type):
     df['atr'] = tr.rolling(14).mean()
     return df.dropna(), symbol
 
-# 4. Analysis Execution
+# 3. MAIN INTERFACE
+st.title("Terminal Analysis")
+
+col1, col2 = st.columns(2)
+with col1:
+    account_size = st.number_input("Account Balance ($)", value=10000, step=100)
+with col2:
+    risk_percent = st.slider("Risk Per Trade (%)", 0.1, 5.0, 1.0, step=0.1)
+
+col_a, col_b = st.columns([3, 1])
+with col_a:
+    symbol_input = st.text_input("Enter Ticker", "BTC").upper().strip()
+with col_b:
+    asset_class = st.selectbox("Asset Type", ["Stock", "Crypto"])
+
+# 4. ANALYSIS EXECUTION
 if st.button("GENERATE TRADE REPORT"):
-    with st.spinner("Fetching Market Data..."):
+    with st.spinner("Analyzing Market Structure..."):
         try:
             df, final_symbol = get_data(symbol_input, asset_class)
-            
-            # Logic calculations
             latest = df.iloc[-1]
-            price = float(latest['close'])
-            rsi = float(latest['rsi'])
-            ema_200 = float(latest['ema_200'])
-            atr = float(latest['atr'])
+            price, rsi, ema_200, atr = float(latest['close']), float(latest['rsi']), float(latest['ema_200']), float(latest['atr'])
             support = float(df['low'].rolling(20).min().iloc[-1])
             resistance = float(df['high'].rolling(20).max().iloc[-1])
             
-            # --- CALCULATE TREND STRENGTH ---
             ema_dist = ((price - ema_200) / ema_200) * 100
-            # If positive, we are X% above. If negative, we are X% below.
-            # Mean Reversion Logic
-            # Triggered if we are more than 20% below the EMA (oversold bounce potential)
             mean_reversion_candidate = ema_dist < -20 and rsi < 30
-            
             range_width = ((resistance - support) / support) * 100
-            avg_vol = df['volume'].rolling(20).mean().iloc[-1]
-            vol_ratio = latest['volume'] / avg_vol
-            p_gain, p_loss = resistance - price, price - support
-            rr_ratio = p_gain / p_loss if p_loss > 0 else 0
+            vol_ratio = latest['volume'] / df['volume'].rolling(20).mean().iloc[-1]
+            
+            risk_amount = account_size * (risk_percent / 100)
+            safety_stop = price - (atr * 2)
+            stop_dist = price - safety_stop
+            pos_size = risk_amount / stop_dist if stop_dist > 0 else 0
+            pos_value = pos_size * price
 
-            # --- STYLE HELPERS ---
-            def green(text): return f"<span style='color: #00ff00;'>{text}</span>"
-            def red(text): return f"<span style='color: #ff4b4b;'>{text}</span>"
+            target_price = ema_200 if mean_reversion_candidate else resistance
+            total_potential_profit = pos_size * (target_price - price)
+            potential_pct = ((target_price - price) / price) * 100
 
-            # --- 1. INITIALIZE REPORT CONTAINER ---
-            report = '<div style="font-family: monospace; background-color: #1e1e1e; padding: 20px; border-radius: 5px; line-height: 1.6; color: #e0e0e0;">'
+            def green(t): return f"<span style='color: #00ff00;'>{t}</span>"
+            def red(t): return f"<span style='color: #ff4b4b;'>{t}</span>"
 
-            # --- 2. HEADER SECTION ---
+            report = '<div class="report-container">'
+            
+            # 1 & 2: Header
             spot_val = green(f"${price:,.2f}") if price > ema_200 else red(f"${price:,.2f}")
-            report += f"Ticker: {final_symbol} | Spot: {spot_val}<br>"
-            report += f"SR Levels: [S: ${support:,.2f} | R: ${resistance:,.2f}]<br>"
+            report += f"1. Ticker: {final_symbol} | Spot: {spot_val}<br>"
+            report += f"2. SR Levels: [S: ${support:,.2f} | R: ${resistance:,.2f}]<br>"
             report += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br><br>"
 
-            # --- 3. TECHNICAL NOTATION ---
-            regime_status = green("Bullish") if price > ema_200 else red("Bearish")
-            report += "TECHNICAL NOTATION<br>"
-            report += f"Regime: {regime_status} (vs 200 EMA)<br>"
+            # 3. Technical Notation
+            regime = green("Bullish") if price > ema_200 else red("Bearish")
+            report += f"3. TECHNICAL NOTATION<br>Regime: {regime} (vs 200 EMA)<br>"
             report += f"Structure: {'Consolidation' if range_width < 5 else 'Wide Range'}<br><br>"
 
-            # --- 4. TREND DYNAMICS ---
-            dist_color = green if ema_dist > 0 else red
-            report += "TREND DYNAMICS<br>"
-            report += f"EMA distance: {dist_color(f'{ema_dist:.2f}%')}<br>"
-            report += f"Mean price (200 EMA): {green(f'${ema_200:,.2f}') if price < ema_200 else red(f'${ema_200:,.2f}')}<br>"
-            
-            if mean_reversion_candidate:
-                report += f"Alert: {green('Extreme extension detected')} - mean reversion likely<br>"
-                report += f"Target: Potential bounce toward ${ema_200:,.2f}<br>"
-            elif abs(ema_dist) > 15:
-                report += f"Note: {red('Extended')} from average price<br>"
-            else:
-                report += "Note: Price is near the mean<br>"
-            report += "<br>"
+            # 4. Trend Dynamics
+            d_color = green if ema_dist > 0 else red
+            report += f"4. TREND DYNAMICS<br>EMA distance: {d_color(f'{ema_dist:.2f}%')}<br>"
+            report += f"Mean price (200 EMA): ${ema_200:,.2f}<br><br>"
 
-            # --- 5. PRICE ACTION ---
-            rsi_val = red(f"{rsi:.1f}") if rsi > 70 or rsi < 30 else green(f"{rsi:.1f}")
-            report += "PRICE ACTION<br>"
-            report += f"Momentum: RSI is {rsi_val}<br>"
-            report += f"Volume: {'Spike detected' if vol_ratio > 1.5 else 'Normal participation'}<br><br>"
+            # 5. Price Action
+            vol_txt = "Surge" if vol_ratio > 1.5 else "Normal"
+            report += f"5. PRICE ACTION<br>Momentum: RSI {rsi:.1f}<br>Volume Trend: {vol_txt} ({vol_ratio:.2f}x)<br><br>"
 
-            # --- 6. RISK MANAGEMENT ---
-            rr_val = green(f"1 : {rr_ratio:.2f}") if rr_ratio >= 2.0 else red(f"1 : {rr_ratio:.2f}")
-            risk_text = red(f"${p_loss:,.2f}")
-            reward_text = green(f"${p_gain:,.2f}")
-            
-            # Calculate a 2x ATR Stop Loss
-            safety_stop = price - (atr * 2)
-            
-            report += "RISK MANAGEMENT<br>"
-            report += f"R/R ratio: {rr_val}<br>"
-            report += f"Risk: {risk_text} | Reward: {reward_text}<br>"
-            report += f"Safety stop (2x ATR): {red(f'${safety_stop:,.2f}')}<br><br>"
+            # 6. Risk Management
+            report += f"6. RISK MANAGEMENT<br>Risk Amount: {red(f'${risk_amount:,.2f}')} ({risk_percent}%)<br>"
+            report += f"Safety Stop (2x ATR): {red(f'${safety_stop:,.2f}')}<br>"
+            report += f"Position Size: {green(f'{pos_size:.4f} units')} (~${pos_value:,.2f})<br><br>"
 
-            # --- 7. STRATEGY CONCLUSION ---
-            report += "STRATEGY CONCLUSION<br>"
+            # 7. Strategy Conclusion & Alerts
+            report += "7. STRATEGY CONCLUSION<br>"
+            alerts = []
+            if abs(ema_dist) > 50: alerts.append(red("VOLATILITY ALERT: Price extremely extended from Mean!"))
+            if total_potential_profit < risk_amount and total_potential_profit > 0: alerts.append(red("POOR VALUE: Potential reward is less than the risk."))
+            if price >= resistance and vol_ratio > 1.2: alerts.append(green("BULLISH BREAKOUT: Price clearing resistance on high volume!"))
+            if 60 <= rsi <= 70: alerts.append(green("TREND STRENGTH: Strong momentum with room to run."))
+
             if price < ema_200:
-                if mean_reversion_candidate:
-                    report += f"Action: {green('Speculative Long')} (Mean Reversion Play)<br>"
-                    report += f"Exit if price drops below {red(f'${safety_stop:,.2f}')}"
-                else:
-                    report += red("Action: Avoid - Market structure is broken")
-            elif rr_ratio >= 2.0 and rsi < 55:
-                report += green("Action: High Conviction Long")
-            elif rr_ratio < 1.0:
-                report += red("Action: Patience - Wait for a deeper dip")
-            else:
-                report += "Action: Mediocre setup - No clear edge"
+                if mean_reversion_candidate: report += f"Action: {green('Speculative Long')} (Mean Reversion Play)<br>"
+                else: report += red("Action: Avoid - Market structure is broken<br>")
+            elif (target_price - price) / (price - support) >= 2.0 and rsi < 55:
+                report += green("Action: High Conviction Long<br>")
+            else: report += "Action: Neutral/Monitor<br>"
+            
+            if alerts: report += "<br>".join(alerts) + "<br>"
+            
+            # 8. Quick Summary
+            report += "<br>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br><br>"
+            report += "8. QUICK SUMMARY<br>"
+            report += f"• Position Size: {green(f'{pos_size:.4f} units')}<br>"
+            report += f"• Risk Amount:   {red(f'${risk_amount:,.2f}')}<br>"
+            if total_potential_profit > 0:
+                report += f"• Potential Gain: {green(f'${total_potential_profit:,.2f}')}<br>"
+                report += f"• R/R Ratio:     {green(f'1 : {total_potential_profit/risk_amount:.2f}')}<br>"
+                report += f"• Price Target:  ${target_price:,.2f} ({potential_pct:.2f}%)<br>"
+            else: report += f"• Price Target:  ${target_price:,.2f} (Target below entry)<br>"
+            report += f"• Safety Stop:   ${safety_stop:,.2f}<br>"
 
-            # --- 8. CLOSE AND RENDER ---
             report += "</div>"
             st.markdown(report, unsafe_allow_html=True)
 
